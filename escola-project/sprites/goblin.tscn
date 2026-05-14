@@ -3,3 +3,10 @@
 [ext_resource type="PackedScene" uid="uid://cdtxyx6xw8e23" path="res://entidades.tscn" id="1_i7rec"]
 
 [node name="goblin" unique_id=192191782 instance=ExtResource("1_i7rec")]
+collision_mask = 2
+
+[node name="AnimatedSprite2D" parent="." index="0" unique_id=274576626]
+animation = &"walk"
+
+[node name="Detector de Player" parent="." index="5" unique_id=866061328]
+target_position = Vector2(33, 0)
