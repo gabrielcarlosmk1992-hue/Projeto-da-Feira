@@ -188,7 +188,7 @@ func attack_state(_delta):
 		var alvo = detector_de_player.get_collider()
 
 		if alvo != null and alvo.has_method("take_damage"):
-			alvo.take_damage(2)
+			alvo.take_damage(15)
 
 	# reset quando animação reinicia ou volta
 	if anim.frame == 0:
@@ -247,7 +247,7 @@ func hit_state(_delta):
 		anim.play("hit")
 
 	# espera tempo fixo (1.5s)
-	await get_tree().create_timer(0.8).timeout
+	await get_tree().create_timer(2).timeout
 
 	hit_lock = false
 
