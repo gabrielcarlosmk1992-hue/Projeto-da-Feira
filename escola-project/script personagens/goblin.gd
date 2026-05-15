@@ -9,7 +9,7 @@ enum GoblinState {
 }
 
 @onready var anim: AnimatedSprite2D = $AnimatedSprite2D
-@onready var hitbox: Area2D = $hitbox
+@onready var hitbox: Area2D = $Area2D
 @onready var detector: RayCast2D = $Detector
 @onready var detector_2: RayCast2D = $"Detector 2"
 @onready var detector_de_player: RayCast2D = $"Detector de Player"
@@ -17,7 +17,6 @@ enum GoblinState {
 @onready var detector_player_back: RayCast2D = $Detector_Player_Back
 
 const SPEED = 30.0
-const JUMP_VELOCITY = -400.0
 const ATTACK_DISTANCE = 25
 
 var status: GoblinState
@@ -25,8 +24,10 @@ var status: GoblinState
 var direction = 1
 
 var walk_time = 0.0
-var wait_time = 0.0
-var waiting = false
+var idle_time = 0.0
+
+var attack_hit_done = false
+var hit_lock = false
 
 var chasing_player = false
 
@@ -37,111 +38,145 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 
+	if status == GoblinState.dead:
+		dead_state(delta)
+		move_and_slide()
+		return
+
 	if not is_on_floor():
 		velocity += get_gravity() * delta
 
 	match status:
+
 		GoblinState.walk:
 			walk_state(delta)
+
 		GoblinState.attack:
 			attack_state(delta)
-		GoblinState.dead:
-			dead_state(delta)
+
 		GoblinState.hit:
-				hit_state(delta)
+			hit_state(delta)
+
 		GoblinState.idle:
 			idle_state(delta)
 
 	move_and_slide()
 
 func go_to_walk_state():
+
+	if status == GoblinState.dead:
+		return
+
 	status = GoblinState.walk
+
+	anim.speed_scale = 1.0
 	anim.play("walk")
-	
+
 func go_to_attack_state():
+
+	if status == GoblinState.dead:
+		return
+
+	if status == GoblinState.attack:
+		return
+
+	if status == GoblinState.hit:
+		return
+
 	status = GoblinState.attack
+
+	anim.speed_scale = 0.8
 	anim.play("attack")
+
+	attack_hit_done = false
+
 	velocity = Vector2.ZERO
-	
+
 func go_to_hit_state():
 
+	if status == GoblinState.dead:
+		return
+
 	status = GoblinState.hit
+
+	anim.speed_scale = 1.0
+
+	anim.stop()
+	anim.frame = 0
 	anim.play("hit")
 
 	velocity = Vector2.ZERO
-	
+
 func go_to_dead_state():
+
 	status = GoblinState.dead
+
+	anim.speed_scale = 1.0
 	anim.play("dead")
-	hitbox.process_mode = Node.PROCESS_MODE_DISABLED
+
+	hitbox.monitoring = false
+
 	velocity = Vector2.ZERO
-	
-var idle_time = 0.0
 
 func go_to_idle_state():
 
+	if status == GoblinState.dead:
+		return
+
 	status = GoblinState.idle
+
 	anim.play("idle")
 
 	velocity.x = 0
 
 	idle_time = 0.0
-	
+
 func walk_state(delta):
 
 	chasing_player = false
-
 
 	# PLAYER NA FRENTE
 	if detector_player_front.is_colliding():
 
 		var alvo = detector_player_front.get_collider()
 
-		if alvo.is_in_group("player"):
+		if alvo != null and alvo.is_in_group("player"):
 
 			chasing_player = true
 
-			# Anda até o player
 			velocity.x = SPEED * direction
 
-			if alvo is Node2D:
+			var distancia = global_position.distance_to(alvo.global_position)
 
-				var distancia = global_position.distance_to(alvo.global_position)
+			if distancia <= ATTACK_DISTANCE:
 
-				# Ataca quando perto
-				if distancia <= ATTACK_DISTANCE:
-					go_to_attack_state()
-					return
-
+				go_to_attack_state()
+				return
 
 	# PLAYER ATRÁS
 	if detector_player_back.is_colliding():
 
 		var alvo_back = detector_player_back.get_collider()
 
-		if alvo_back.is_in_group("player"):
+		if alvo_back != null and alvo_back.is_in_group("player"):
 
 			chasing_player = true
 
-			# Vira pro player
 			direction *= -1
 			scale.x *= -1
 
 			velocity.x = SPEED * direction
 
-			if alvo_back is Node2D:
+			var distancia_back = global_position.distance_to(alvo_back.global_position)
 
-				var distancia_back = global_position.distance_to(alvo_back.global_position)
+			if distancia_back <= ATTACK_DISTANCE:
 
-				if distancia_back <= ATTACK_DISTANCE:
-					go_to_attack_state()
-					return
+				go_to_attack_state()
+				return
 
-
-	# SE NÃO ESTIVER PERSEGUINDO
+	# WALK NORMAL
 	if !chasing_player:
 
-		# Animação walk
 		if anim.animation != "walk":
 			anim.play("walk")
 
@@ -149,62 +184,83 @@ func walk_state(delta):
 
 		walk_time += delta
 
-		# Para depois de 3 segundos
 		if walk_time >= 3.0:
 
 			walk_time = 0.0
 			go_to_idle_state()
 			return
 
-
-	# Parede
+	# PAREDE
 	if detector.is_colliding():
 
 		direction *= -1
 		scale.x *= -1
 
-
-	# Sem chão
+	# SEM CHÃO
 	if !detector_2.is_colliding():
 
 		direction *= -1
 		scale.x *= -1
-		
+
 func attack_state(_delta):
 
 	velocity.x = 0
 
+	# perdeu player
 	if !detector_de_player.is_colliding():
+
+		attack_hit_done = false
+
 		go_to_walk_state()
 		return
 
-	# Dano no frame específico
-	if anim.frame == 2:
+	# HIT UMA VEZ
+	if anim.frame > 6 and !attack_hit_done:
+
+		attack_hit_done = true
 
 		var alvo = detector_de_player.get_collider()
 
 		if alvo != null and alvo.has_method("take_damage"):
 
-			alvo.take_damage(1.5)
+			alvo.take_damage(10)
 
-	# Quando terminar animação
+			print("Goblin deu 15 de dano")
+
+	# RESET
+	if anim.frame == 0:
+		attack_hit_done = false
+
+	# FIM DA ANIMAÇÃO
 	if anim.frame == anim.sprite_frames.get_frame_count("attack") - 1:
 
 		go_to_walk_state()
-		
+
 func hit_state(_delta):
 
 	velocity = Vector2.ZERO
 
-	if anim.frame == anim.sprite_frames.get_frame_count("hit") - 1:
-		go_to_walk_state()
-	
+	if anim.animation != "hit":
+		anim.play("hit")
+
+	# trava hit
+	await get_tree().create_timer(2).timeout
+
+	hit_lock = false
+
+	if status != GoblinState.dead:
+
+		if hp <= 0:
+			go_to_dead_state()
+		else:
+			go_to_walk_state()
+
 func dead_state(_delta):
 
-	velocity.x = 0
+	velocity = Vector2.ZERO
 
-	# Espera animação acabar
 	if anim.frame == anim.sprite_frames.get_frame_count("dead") - 1:
+
 		queue_free()
 
 func take_damage(damage):
@@ -212,23 +268,28 @@ func take_damage(damage):
 	if status == GoblinState.dead:
 		return
 
-	if status == GoblinState.hit:
+	if hit_lock:
 		return
+
+	hit_lock = true
 
 	hp -= damage
 
 	print("Goblin HP:", hp)
 
 	if hp <= 0:
+
 		go_to_dead_state()
-	else:
-		go_to_hit_state()
-		
+		return
+
+	go_to_hit_state()
+
 func idle_state(delta):
 
 	velocity.x = 0
 
-	anim.play("idle")
+	if anim.animation != "idle":
+		anim.play("idle")
 
 	idle_time += delta
 
@@ -238,5 +299,3 @@ func idle_state(delta):
 		scale.x *= -1
 
 		go_to_walk_state()
-	
-	
