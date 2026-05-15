@@ -1,256 +1,445 @@
 extends CharacterBody2D
 
-enum EsqueletoState {
-	idle,
-	walk,
-	attack,
-	hit,
-	dead
+enum PlayerState {
+	parado,
+	correndo,
+	pulando,
+	caindo,
+	agachado,
+	deslizando,
+	ataque,
+	ataque_agachado,
+	dano,
+	morte
 }
 
-@onready var anim: AnimatedSprite2D = $AnimatedSprite2D
-@onready var hitbox: Area2D = $Area2D
-@onready var detector: RayCast2D = $Detector
-@onready var detector_2: RayCast2D = $"Detector 2"
-@onready var detector_de_player: RayCast2D = $"Detector de Player"
-@onready var detector_player_front: RayCast2D = $Detector_Player_Front
-@onready var detector_player_back: RayCast2D = $Detector_Player_Back
+@onready var anim: AnimatedSprite2D = $Animação_Prota
+@onready var colisor_prota: CollisionShape2D = $Colisor_Prota
+@onready var attack_area: Area2D = $attackArea
+@onready var attack_collision: CollisionShape2D = $attackArea/attack_collision
 
 
-const SPEED = 30.0
-const JUMP_VELOCITY = -400.0
-const ATTACK_DISTANCE = 25
 
-var status: EsqueletoState
+@export var max_speed = 250.0
+@export var acceleration = 200.0
+@export var deceleration = 550.0
+@export var deslizando_deceleration = 100
+@export var crouch_speed = 60.0
 
-var direction = 1
+const JUMP_VELOCITY = -350.0
 
-var walk_time = 0.0
-var wait_time = 0.0
-var waiting = false
+var direction = 0
+var status: PlayerState
+var hp = 50
+var taking_damage = false
+var attacked_bodies = []
+var combo_attack = 1
+var invencivel = false
+var dano_travado = false
 
-var attack_active = false
-var attack_hit_done = false
-var hit_lock = false
 
-var chasing_player = false
-
-
-var hp = 30
 
 func _ready() -> void:
-	go_to_walk_state()
+	go_to_parado_state()
+	attack_collision.disabled = true
 
 func _physics_process(delta: float) -> void:
-
+	
 	if not is_on_floor():
 		velocity += get_gravity() * delta
-
+		
+	
 	match status:
-		EsqueletoState.walk:
-			walk_state(delta)
-		EsqueletoState.attack:
-			attack_state(delta)
-		EsqueletoState.dead:
-			dead_state(delta)
-		EsqueletoState.hit:
-			hit_state(delta)
-		EsqueletoState.idle:
-			idle_state(delta)
-
+		PlayerState.parado:
+			parado_state(delta)
+		PlayerState.correndo:
+			correndo_state(delta)
+		PlayerState.pulando:
+			pulando_state(delta)
+		PlayerState.caindo:
+			caindo_state(delta)
+		PlayerState.agachado:
+			agachado_state(delta)
+		PlayerState.deslizando:
+			deslizando_state(delta)
+		PlayerState.ataque:
+			ataque_state(delta)
+		PlayerState.ataque_agachado:
+			ataque_agachado_state(delta)
+		PlayerState.dano:
+			dano_state(delta)
+		PlayerState.morte:
+			morte_state(delta)
+			
 	move_and_slide()
 
-func go_to_walk_state():
-	status = EsqueletoState.walk
-	anim.play("walk")
+func go_to_parado_state():
+	status = PlayerState.parado
+	anim.play("parado")
 	
-func go_to_attack_state():
-	status = EsqueletoState.attack
-	anim.play("attack")
-	anim.speed_scale =1.5
-	velocity = Vector2.ZERO
+func go_to_correndo_state():
+	status = PlayerState.correndo
+	anim.play("correndo")
+
+func go_to_pulando_state():
+	status = PlayerState.pulando
+	anim.play("pulando")
+	velocity.y = JUMP_VELOCITY
 	
-func go_to_hit_state():
-
-	status = EsqueletoState.hit
-	anim.play("hit")
-
-	velocity = Vector2.ZERO
+func go_to_caindo_state():
+	status = PlayerState.caindo
+	anim.play("caindo")
 	
-func go_to_dead_state():
-	status = EsqueletoState.dead
-	anim.play("dead")
-	hitbox.process_mode = Node.PROCESS_MODE_DISABLED
-	velocity = Vector2.ZERO
+func go_to_agachado_state():
+	status = PlayerState.agachado
+	anim.play("agachado")
+	set_small_collider()
 	
-var idle_time = 0.0
+func exit_from_agachado_state():
+	set_large_collider()
+	
+	
+func go_to_deslizando_state():
+	status = PlayerState.deslizando
+	anim.play("deslizando")
+	set_small_collider()
+	
+func exit_from_deslizando_state():
+	set_large_collider()
+	
+func go_to_ataque_state():
 
-func go_to_idle_state():
-
-	status = EsqueletoState.idle
-	anim.play("idle")
+	status = PlayerState.ataque
 
 	velocity.x = 0
 
-	idle_time = 0.0
-	
-func walk_state(delta):
+	attack_collision.disabled = false
 
-	chasing_player = false
+	attacked_bodies.clear()
 
-	# PLAYER NA FRENTE
-	if detector_player_front.is_colliding():
+	# PRIMEIRO ATAQUE
+	if combo_attack == 1:
 
-		var alvo = detector_player_front.get_collider()
+		anim.play("ataque_1")
 
-		if alvo.is_in_group("player"):
+		combo_attack = 2
 
-			chasing_player = true
+	# SEGUNDO ATAQUE
+	else:
 
-			# Anda até o player
-			velocity.x = SPEED * direction
+		anim.play("ataque")
 
-			if alvo is Node2D:
+		combo_attack = 1
 
-				var distancia = global_position.distance_to(alvo.global_position)
+	if anim.flip_h:
 
-				# Ataca quando perto
-				if distancia <= ATTACK_DISTANCE:
-					go_to_attack_state()
-					return
+		attack_area.position.x = 5
+		attack_area.scale.x = -1
 
-	# PLAYER ATRÁS
-	if detector_player_back.is_colliding():
+	else:
 
-		var alvo_back = detector_player_back.get_collider()
-
-		if alvo_back.is_in_group("player"):
-
-			chasing_player = true
-
-			# Vira pro player
-			direction *= -1
-			scale.x *= -1
-
-			velocity.x = SPEED * direction
-
-			if alvo_back is Node2D:
-
-				var distancia_back = global_position.distance_to(alvo_back.global_position)
-
-				if distancia_back <= ATTACK_DISTANCE:
-					go_to_attack_state()
-					return
-
-	# SE NÃO ESTIVER PERSEGUINDO
-	if !chasing_player:
-
-		# Animação walk
-		if anim.animation != "walk":
-			anim.play("walk")
-
-		velocity.x = SPEED * direction
-
-		walk_time += delta
-
-		# Para depois de 3 segundos
-		if walk_time >= 3.0:
-
-			walk_time = 0.0
-			go_to_idle_state()
-			return
-
-	# Parede
-	if detector.is_colliding():
-
-		direction *= -1
-		scale.x *= -1
-
-	# Sem chão
-	if !detector_2.is_colliding():
-
-		direction *= -1
-		scale.x *= -1
+		attack_area.position.x = -5
+		attack_area.scale.x = 1
 		
-func attack_state(_delta):
+func go_to_ataque_agachado_state():
+
+	status = PlayerState.ataque_agachado
+
+	anim.play("ataque_agachado")
 
 	velocity.x = 0
 
-	if !detector_de_player.is_colliding():
-		attack_active = false
-		go_to_walk_state()
+	attack_collision.disabled = false
+
+	attacked_bodies.clear()
+
+	if anim.flip_h:
+
+		attack_area.position.x = 5
+		attack_area.scale.x = -1
+
+	else:
+
+		attack_area.position.x = -5
+		attack_area.scale.x = 1
+		
+func go_to_dano_state():
+
+	# NÃO entra em dano se estiver morto
+	if status == PlayerState.morte:
 		return
 
-	# HIT GARANTIDO UMA VEZ
-	if anim.frame > 6 and !attack_hit_done:
-		attack_hit_done = true
+	status = PlayerState.dano
+	velocity = Vector2.ZERO
 
-		var alvo = detector_de_player.get_collider()
+	if dano_travado:
+		return
 
-		if alvo != null and alvo.has_method("take_damage"):
-			alvo.take_damage(2)
+	dano_travado = true
 
-	# reset quando animação reinicia ou volta
-	if anim.frame == 0:
-		attack_hit_done = false
+	anim.speed_scale = 0.5
+	anim.play("dano")
 
-	if anim.frame == anim.sprite_frames.get_frame_count("attack") - 1:
-		go_to_walk_state()
+	await get_tree().create_timer(0.4).timeout
+
+	dano_travado = false
+
+	# só volta pro parado se AINDA estiver em dano
+	if status == PlayerState.dano:
+		go_to_parado_state()
 	
-func dead_state(_delta):
+func go_to_morte_state():
 
-	velocity.x = 0
+	status = PlayerState.morte
 
-	# Espera animação acabar
-	if anim.frame == anim.sprite_frames.get_frame_count("dead") - 1:
+	invencivel = true
+	dano_travado = false
+
+	velocity = Vector2.ZERO
+
+	anim.speed_scale = 1.0
+	anim.play("morte")
+
+func parado_state(delta):
+	move(delta)
+	if velocity.x != 0:
+		go_to_correndo_state()
+		return
+		
+	if Input.is_action_just_pressed("pulando"):
+		go_to_pulando_state()
+		return
+		
+	if Input.is_action_pressed("agachado"):
+		go_to_agachado_state()
+		return
+		
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		go_to_ataque_state()
+		return
+	
+func correndo_state(delta):
+	move(delta)
+	if velocity.x == 0:
+		go_to_parado_state()
+		return
+		
+	if Input.is_action_just_pressed("pulando"):
+		go_to_pulando_state()
+		return
+		
+	
+	if Input.is_action_just_pressed("agachado"):
+		go_to_deslizando_state()
+		return
+		
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		go_to_ataque_state()
+		return
+		
+		
+	if !is_on_floor():
+		go_to_caindo_state()
+		return
+		
+	
+func pulando_state(delta):
+	move(delta)
+	
+		
+	if velocity.y > 0:
+		go_to_caindo_state()
+		return
+		
+func caindo_state(delta):
+	move(delta)
+	
+	if is_on_floor():
+		if velocity.x ==-20:
+			go_to_parado_state()
+		else:
+			go_to_correndo_state()
+		return
+		
+func agachado_state(delta):
+
+	update_direction()
+
+	# Movimento agachado
+	if direction != 0:
+
+		velocity.x = move_toward(
+			velocity.x,
+			direction * crouch_speed,
+			acceleration * delta
+		)
+
+		anim.play("agachado_andando")
+
+	else:
+
+		velocity.x = move_toward(
+			velocity.x,
+			0,
+			deceleration * delta
+		)
+
+		anim.play("agachado")
+
+# Ataque agachado
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+
+		go_to_ataque_agachado_state()
+		return
+
+	# Sai do agachado
+	if Input.is_action_just_released("agachado"):
+
+		exit_from_agachado_state()
+		go_to_parado_state()
+		return
+		
+func deslizando_state(delta):
+
+	# Desacelera
+	velocity.x = move_toward(
+		velocity.x,
+		0,
+		deslizando_deceleration * delta
+	)
+
+	# Enquanto ainda está deslizando
+	if abs(velocity.x) > 5:
+
+		if anim.animation != "deslizando":
+			anim.play("deslizando")
+
+	# Quando parar de deslizar
+	else:
+
+		velocity.x = 0
+
+		# Se continuar segurando agachar
+		if Input.is_action_pressed("agachado"):
+
+			# Fica agachado PARADO
+			if anim.animation != "agachado":
+				anim.play("agachado")
+
+		# Se soltou o botão
+		else:
+
+			exit_from_agachado_state()
+			go_to_parado_state()
+			return
+		
+func ataque_state(_delta):
+
+	# FRAME DO HIT
+	if anim.frame == 1:
+
+		for body in attack_area.get_overlapping_bodies():
+
+			if body.has_method("take_damage"):
+
+				if body not in attacked_bodies:
+
+					body.take_damage(10)
+					attacked_bodies.append(body)
+
+	# FINAL DA ANIMAÇÃO
+	if anim.frame == anim.sprite_frames.get_frame_count(anim.animation) - 1:
+
+		attack_collision.disabled = true
+
+		attacked_bodies.clear()
+
+		go_to_parado_state()
+		
+func ataque_agachado_state(_delta):
+
+	# FRAME DO HIT
+	if anim.frame == 2:
+
+		for body in attack_area.get_overlapping_bodies():
+
+			if body.has_method("take_damage"):
+
+				if body not in attacked_bodies:
+
+					body.take_damage(10)
+					attacked_bodies.append(body)
+
+	# FINAL DA ANIMAÇÃO
+	if anim.frame == anim.sprite_frames.get_frame_count("ataque_agachado") - 1:
+
+		attack_collision.disabled = true
+
+		attacked_bodies.clear()
+
+		go_to_agachado_state()
+		
+func dano_state(_delta):
+
+	velocity = Vector2.ZERO
+		
+func morte_state(_delta):
+
+	velocity = Vector2.ZERO
+
+	if anim.frame == anim.sprite_frames.get_frame_count("morte") - 1:
+
 		queue_free()
+
+func move(delta):
+	update_direction()
+	
+	if direction:
+		velocity.x = move_toward(velocity.x, direction * max_speed, acceleration * delta)
+	else:
+		velocity.x = move_toward(velocity.x, 0, deceleration * delta)
+	
+func update_direction():
+	direction = Input.get_axis("left", "right")
+	
+	if direction < 0:
+		anim.flip_h = true
+	elif direction > 0:
+		anim.flip_h = false
+
+func set_small_collider():
+	colisor_prota.shape.radius = 10
+	colisor_prota.shape.height = 30
+	colisor_prota.position.y = 5
+	colisor_prota.position.x = -2
+	
+func set_large_collider():
+	colisor_prota.shape.radius = 10
+	colisor_prota.shape.height = 36
+	colisor_prota.position.y = 0
+	colisor_prota.position.x = 0
 
 func take_damage(damage):
 
-	if status == EsqueletoState.dead:
+	if invencivel:
+		return
+
+	if status == PlayerState.morte:
 		return
 
 	hp -= damage
-	print("HP:", hp)
+
+	print("HP Player:", hp)
 
 	if hp <= 0:
-		go_to_dead_state()
+
+		hp = 0
+		go_to_morte_state()
 		return
 
-	# bloqueia múltiplos hits
-	if hit_lock:
-		return
+	go_to_dano_state()
 
-	hit_lock = true
-	go_to_hit_state()
-		
-func idle_state(delta):
+	invencivel = true
+	await get_tree().create_timer(1).timeout
+	invencivel = false
 
-	velocity.x = 0
-
-	anim.play("idle")
-
-	idle_time += delta
-
-	if idle_time >= 3.0:
-
-		direction *= -1
-		scale.x *= -1
-
-		go_to_walk_state()
-		
-func hit_state(_delta):
-
-	velocity = Vector2.ZERO
-
-	if anim.animation != "hit":
-		anim.play("hit")
-
-	# espera tempo fixo (1.5s)
-	await get_tree().create_timer(0.8).timeout
-
-	hit_lock = false
-
-	# só volta se ainda não morreu
-	if status != EsqueletoState.dead:
-		go_to_walk_state()
