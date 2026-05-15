@@ -188,7 +188,7 @@ func attack_state(_delta):
 		var alvo = detector_de_player.get_collider()
 
 		if alvo != null and alvo.has_method("take_damage"):
-			alvo.take_damage(2)
+			alvo.take_damage(20)
 
 		anim.play("attack")
 
@@ -251,3 +251,4 @@ func idle_state(delta):
 		scale.x *= -1
 
 		go_to_walk_state()
+
